@@ -1,0 +1,126 @@
+name: ip-opt-gui release
+
+on:
+  push:
+    tags:
+      - "ip-opt-gui/v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: windows
+            goarch: amd64
+            ext: .exe
+            archive: zip
+            ldflags_extra: "-H=windowsgui"
+          - goos: windows
+            goarch: arm64
+            ext: .exe
+            archive: zip
+            ldflags_extra: "-H=windowsgui"
+          - goos: linux
+            goarch: amd64
+            ext: ""
+            archive: tar
+            ldflags_extra: ""
+          - goos: linux
+            goarch: arm64
+            ext: ""
+            archive: tar
+            ldflags_extra: ""
+          - goos: darwin
+            goarch: amd64
+            ext: ""
+            archive: tar
+            ldflags_extra: ""
+          - goos: darwin
+            goarch: arm64
+            ext: ""
+            archive: tar
+            ldflags_extra: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure tag is on release branch
+        run: |
+          git fetch origin release:refs/remotes/origin/release
+          git merge-base --is-ancestor "${GITHUB_SHA}" "origin/release"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Test
+        run: go test ./...
+
+      - name: Install zip
+        run: sudo apt-get update && sudo apt-get install -y zip
+
+      - name: Build & package
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#ip-opt-gui/}"
+          NAME="ip-opt-gui"
+          OUT_DIR="dist/${NAME}_${VERSION}_${GOOS}_${GOARCH}"
+          mkdir -p "${OUT_DIR}"
+
+          BIN="${NAME}${{ matrix.ext }}"
+          LDFLAGS="-s -w"
+          if [ -n "${{ matrix.ldflags_extra }}" ]; then
+            LDFLAGS="${LDFLAGS} ${{ matrix.ldflags_extra }}"
+          fi
+
+          go build -trimpath -ldflags "${LDFLAGS}" -o "${OUT_DIR}/${BIN}" .
+
+          if [ -f "README.md" ]; then cp "README.md" "${OUT_DIR}/"; fi
+
+          cd dist
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            zip -r "${NAME}_${VERSION}_${GOOS}_${GOARCH}.zip" "$(basename "${OUT_DIR}")"
+          else
+            tar -czf "${NAME}_${VERSION}_${GOOS}_${GOARCH}.tar.gz" "$(basename "${OUT_DIR}")"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ip-opt-gui-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/**/*.zip
+            dist/**/*.tar.gz
+
