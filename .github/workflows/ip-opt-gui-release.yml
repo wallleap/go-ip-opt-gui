@@ -10,37 +10,31 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runs_on }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - goos: windows
+          - runs_on: windows-latest
+            goos: windows
             goarch: amd64
             ext: .exe
             archive: zip
             ldflags_extra: "-H=windowsgui"
-          - goos: windows
+          - runs_on: windows-latest
+            goos: windows
             goarch: arm64
             ext: .exe
             archive: zip
             ldflags_extra: "-H=windowsgui"
-          - goos: linux
+          - runs_on: ubuntu-latest
+            goos: linux
             goarch: amd64
             ext: ""
             archive: tar
             ldflags_extra: ""
-          - goos: linux
-            goarch: arm64
-            ext: ""
-            archive: tar
-            ldflags_extra: ""
-          - goos: darwin
-            goarch: amd64
-            ext: ""
-            archive: tar
-            ldflags_extra: ""
-          - goos: darwin
+          - runs_on: macos-latest
+            goos: darwin
             goarch: arm64
             ext: ""
             archive: tar
@@ -53,9 +47,17 @@ jobs:
           fetch-depth: 0
 
       - name: Ensure tag is on release branch
+        shell: bash
         run: |
-          git fetch origin release:refs/remotes/origin/release
-          git merge-base --is-ancestor "${GITHUB_SHA}" "origin/release"
+          set -euo pipefail
+          BRANCH="release"
+          if git ls-remote --exit-code --heads origin "${BRANCH}" >/dev/null 2>&1; then
+            git fetch origin "${BRANCH}:refs/remotes/origin/${BRANCH}"
+            git merge-base --is-ancestor "${GITHUB_SHA}" "origin/${BRANCH}"
+          else
+            git fetch origin main:refs/remotes/origin/main
+            git merge-base --is-ancestor "${GITHUB_SHA}" "origin/main"
+          fi
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -64,13 +66,26 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
 
+      - name: Install Linux deps (Gio)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libgles2-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libvulkan-dev
+
       - name: Test
+        shell: bash
         run: go test ./...
 
-      - name: Install zip
+      - name: Install zip (Linux)
+        if: runner.os == 'Linux' && matrix.archive == 'zip'
+        shell: bash
         run: sudo apt-get update && sudo apt-get install -y zip
 
-      - name: Build & package
+      - name: Build & package (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -88,7 +103,6 @@ jobs:
           fi
 
           go build -trimpath -ldflags "${LDFLAGS}" -o "${OUT_DIR}/${BIN}" .
-
           if [ -f "README.md" ]; then cp "README.md" "${OUT_DIR}/"; fi
 
           cd dist
@@ -97,6 +111,30 @@ jobs:
           else
             tar -czf "${NAME}_${VERSION}_${GOOS}_${GOARCH}.tar.gz" "$(basename "${OUT_DIR}")"
           fi
+
+      - name: Build & package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = $env:GITHUB_REF_NAME -replace '^ip-opt-gui/',''
+          $name = "ip-opt-gui"
+          $outDir = "dist/${name}_${version}_${env:GOOS}_${env:GOARCH}"
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+
+          $bin = "${name}${{ matrix.ext }}"
+          $ldflags = "-s -w"
+          if ("${{ matrix.ldflags_extra }}") { $ldflags = "$ldflags ${{ matrix.ldflags_extra }}" }
+
+          go build -trimpath -ldflags "$ldflags" -o "$outDir\\$bin" .
+          if (Test-Path "README.md") { Copy-Item "README.md" -Destination $outDir -Force }
+
+          $zipPath = "dist\\${name}_${version}_${env:GOOS}_${env:GOARCH}.zip"
+          if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+          Compress-Archive -Path $outDir -DestinationPath $zipPath
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -123,4 +161,3 @@ jobs:
           files: |
             dist/**/*.zip
             dist/**/*.tar.gz
-
