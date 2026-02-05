@@ -52,13 +52,19 @@ jobs:
           set -euo pipefail
           git fetch --force --tags origin
           TAG_COMMIT="$(git rev-parse "${GITHUB_REF}^{commit}")"
-          BRANCH="release"
-          if git ls-remote --exit-code --heads origin "${BRANCH}" >/dev/null 2>&1; then
-            git fetch origin "${BRANCH}:refs/remotes/origin/${BRANCH}"
-            if ! git merge-base --is-ancestor "${TAG_COMMIT}" "origin/${BRANCH}"; then
-              echo "Tag commit ${TAG_COMMIT} is not contained in origin/${BRANCH}"
-              exit 1
-            fi
+
+          git fetch origin '+refs/heads/release*:refs/remotes/origin/release*' || true
+          RELEASE_BRANCHES="$(git branch -r --list 'origin/release*' | sed 's/^[*[:space:]]*//')"
+          if [ -n "${RELEASE_BRANCHES}" ]; then
+            while IFS= read -r br; do
+              if git merge-base --is-ancestor "${TAG_COMMIT}" "${br}"; then
+                exit 0
+              fi
+            done <<< "${RELEASE_BRANCHES}"
+
+            echo "Tag commit ${TAG_COMMIT} is not contained in any origin/release* branch"
+            echo "${RELEASE_BRANCHES}"
+            exit 1
           else
             git fetch origin main:refs/remotes/origin/main
             if ! git merge-base --is-ancestor "${TAG_COMMIT}" "origin/main"; then
@@ -80,7 +86,13 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y pkg-config libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libgles2-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libvulkan-dev
+          sudo apt-get install -y pkg-config \
+            libegl1-mesa-dev libgles2-mesa-dev \
+            libwayland-dev wayland-protocols \
+            libx11-dev libx11-xcb-dev libxkbcommon-dev libxkbcommon-x11-dev \
+            libxcursor-dev libxfixes-dev libxi-dev libxinerama-dev libxrandr-dev \
+            libxcb1-dev \
+            libvulkan-dev
 
       - name: Test
         shell: bash

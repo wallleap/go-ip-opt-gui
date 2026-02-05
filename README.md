@@ -37,7 +37,7 @@ build_windows_gui.bat
 本仓库提供自动发布工作流：当你创建并推送 tag 后，会自动构建并打包各平台压缩包，并创建 GitHub Release（自动生成更新日志）。
 
 - tag 命名：`ip-opt-gui/vX.Y.Z`（例如 `ip-opt-gui/v1.0.0`）
-- 触发条件：推送上述 tag，且该 tag 指向的提交必须在 `release` 分支上（如果仓库没有 `release` 分支，则默认要求在 `main` 分支上）
+- 触发条件：推送上述 tag，且该 tag 指向的提交必须在 `release*` 分支上（例如 `release`、`release/0.0.4`；如果仓库没有任何 `release*` 分支，则默认要求在 `main` 分支上）
 - 产物：Windows amd64/arm64、Linux amd64、macOS arm64 的二进制 + README，打包为 zip / tar.gz 并上传到 Release
 
 ### 发版命令
@@ -54,4 +54,11 @@ git push origin ip-opt-gui/v1.0.0
 ```bash
 git checkout -b release
 git push -u origin release
+```
+
+如果你使用的是版本分支（例如 `release/0.0.4`），同样先创建并推送：
+
+```bash
+git checkout -b release/0.0.4
+git push -u origin release/0.0.4
 ```
