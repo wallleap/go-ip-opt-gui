@@ -50,13 +50,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git fetch --force --tags origin
+          TAG_COMMIT="$(git rev-parse "${GITHUB_REF}^{commit}")"
           BRANCH="release"
           if git ls-remote --exit-code --heads origin "${BRANCH}" >/dev/null 2>&1; then
             git fetch origin "${BRANCH}:refs/remotes/origin/${BRANCH}"
-            git merge-base --is-ancestor "${GITHUB_SHA}" "origin/${BRANCH}"
+            if ! git merge-base --is-ancestor "${TAG_COMMIT}" "origin/${BRANCH}"; then
+              echo "Tag commit ${TAG_COMMIT} is not contained in origin/${BRANCH}"
+              exit 1
+            fi
           else
             git fetch origin main:refs/remotes/origin/main
-            git merge-base --is-ancestor "${GITHUB_SHA}" "origin/main"
+            if ! git merge-base --is-ancestor "${TAG_COMMIT}" "origin/main"; then
+              echo "Tag commit ${TAG_COMMIT} is not contained in origin/main"
+              exit 1
+            fi
           fi
 
       - name: Setup Go
